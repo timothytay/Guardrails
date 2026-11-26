@@ -16,7 +16,7 @@ from sklearn.metrics import precision_recall_curve, auc, f1_score, precision_sco
 # Set this to disable warning messages in the generation mode.
 transformers.utils.logging.set_verbosity_error()
 
-from eval_utils import compute_results_classifier_hug, DEVICE, DTYPE
+from eval_utils import compute_results_classifier_hug, compute_results_forced, DEVICE, DTYPE
 import calibration as cal
 
 def seed_everything(seed: int):
@@ -49,6 +49,11 @@ def parse_args():
                         help="Parameter for Temperature Scaling, default ts=1.0, no ts applied")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Evaluate a random subset of this many examples (for quick local runs)")
+    parser.add_argument("--base_lm", type=str, default=None,
+                        help="Score this LM (e.g. the guard's base model) using the prompt format of --cls_path. Implies --scoring forced")
+    parser.add_argument("--scoring", type=str, default='generate', choices=['generate', 'forced'],
+                        help="generate: original method (read label logits from the guard's generated reply); "
+                             "forced: read label logits at a fixed answer position (needed for base LMs)")
     
     args = parser.parse_args()
     return args
@@ -92,9 +97,27 @@ def main():
         cls = PeftModel.from_pretrained(cls_m, args.cls_path, device_map=DEVICE)
 
     else:
+        # The tokenizer (and so the prompt format) always comes from the guard;
+        # the weights come from --base_lm when given.
         tokenizer = AutoTokenizer.from_pretrained(args.cls_path, trust_remote_code=True)
         tokenizer.truncation_side="right"
-        cls = AutoModelForCausalLM.from_pretrained(args.cls_path, torch_dtype=DTYPE, trust_remote_code=True, device_map=DEVICE)
+        weights_path = args.base_lm or args.cls_path
+        cls = AutoModelForCausalLM.from_pretrained(weights_path, torch_dtype=DTYPE, trust_remote_code=True, device_map=DEVICE)
+
+    if args.base_lm:
+        if 'Aegis-AI-Content-Safety' in args.cls_path:
+            raise NotImplementedError("--base_lm is not supported for Aegis (LoRA) guards yet")
+        args.scoring = 'forced'
+        base_tok = AutoTokenizer.from_pretrained(args.base_lm)
+        if base_tok.get_vocab() != tokenizer.get_vocab():
+            raise ValueError(f"{args.base_lm} does not share a vocabulary with {args.cls_path}")
+    print(f"Scoring: {args.scoring}" + (f" | weights: {args.base_lm} | prompt format: {args.cls_path}" if args.base_lm else ""))
+
+    def score(data, t_s=1.0):
+        """Return (P(unsafe), gt label, predicted label, label logits, label_mass or None)."""
+        if args.scoring == 'forced':
+            return compute_results_forced(data, cls, tokenizer, args.cls_path, mode, t_s=t_s)
+        return (*compute_results_classifier_hug(data, cls, tokenizer, args.cls_path, mode, t_s=t_s), None)
 
     mode = args.mode
     if args.dataset == 'harmbench':
@@ -361,12 +384,15 @@ def main():
             "response_gt": 0
         }
         
-        prob_cf, _, _, _ = compute_results_classifier_hug(data_cf, cls, tokenizer, args.cls_path, mode)
+        prob_cf, _, _, _, _ = score(data_cf)
         prob_cf = np.array([prob_cf, 1-prob_cf])
         print(prob_cf)
-         
+
+    label_masses = []
     for idx, data in tqdm(completions.items()):
-        prob, l, pred_l, logits = compute_results_classifier_hug(data, cls, tokenizer, args.cls_path, mode, t_s=args.ts)
+        prob, l, pred_l, logits, label_mass = score(data, t_s=args.ts)
+        if label_mass is not None:
+            label_masses.append(label_mass)
 
         if cal_method == 'cc':
             prob = np.array([prob, 1-prob]) # unsafe, safe
@@ -428,8 +454,14 @@ def main():
         'precision': precision,
         'recall': recall,
         'acc': accuracy,
-        'auprc': auprc
+        'auprc': auprc,
+        'scoring': args.scoring,
+        'base_lm': args.base_lm,
     }
+    if label_masses:
+        # Not a score: a sanity check that the model puts its probability on 'safe'/'unsafe' at all
+        results['label_mass'] = float(np.mean(label_masses))
+        print("Label mass (avg P(safe)+P(unsafe)): ", results['label_mass'])
     # Make dirs to output_file if not yet exist
     is_save = True
     if is_save == True:
