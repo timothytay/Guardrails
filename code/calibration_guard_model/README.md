@@ -16,6 +16,23 @@ cd calibration_guard_model
 pip install -r requirements.txt
 ```
 
+### Running Locally on Apple Silicon (no CUDA)
+
+The code auto-detects the device (CUDA → Apple GPU via MPS → CPU). On a Mac, use a recent PyTorch/Transformers rather than the pinned versions:
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python torch transformers peft datasets scikit-learn pandas tqdm accelerate
+huggingface-cli login   # Llama Guard models are gated; accept the licence on HuggingFace first
+```
+
+Small models such as `meta-llama/Llama-Guard-3-1B` run quickly; 7–8B models need ~16 GB of memory. Use `--max_samples N` for a quick run on a random subset:
+
+```bash
+.venv/bin/python eval.py --cls_path meta-llama/Llama-Guard-3-1B --dataset xs-test --mode prompt \
+    --cal_method origin --max_samples 50 --save_path results_guard/test/result.json
+```
+
 ### Running The Evaluation 
 For general evaluations and experiments with improved calibration, 
 

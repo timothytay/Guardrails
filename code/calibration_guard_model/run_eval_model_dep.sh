@@ -7,7 +7,7 @@ base_save_dir="results_guard"
 
 # mode: prompt-response
 # cls_path: meta-llama/LlamaGuard-7b meta-llama/Meta-Llama-Guard-2-8B meta-llama/Llama-Guard-3-8B nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0 nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0 OpenSafetyLab/MD-Judge-v0.1 cais/HarmBench-Llama-2-13b-cls cais/HarmBench-Mistral-7b-val-cls allenai/wildguard
-# cal_method: origin ts cc bs
+# cal_method: origin ts cc bc
 
 cls_path='meta-llama/LlamaGuard-7b'
 dataset='harmbench-adv-model'

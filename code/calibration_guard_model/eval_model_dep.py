@@ -15,7 +15,7 @@ from sklearn.metrics import precision_recall_curve, auc, f1_score, precision_sco
 # Set this to disable warning messages in the generation mode.
 transformers.utils.logging.set_verbosity_error()
 
-from eval_utils import compute_results_classifier_hug
+from eval_utils import compute_results_classifier_hug, DEVICE, DTYPE
 import calibration as cal
 
 import warnings
@@ -31,7 +31,8 @@ def seed_everything(seed: int):
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
 
@@ -141,13 +142,13 @@ def main():
     if 'Aegis-AI-Content-Safety' in args.cls_path:
         tokenizer = AutoTokenizer.from_pretrained('meta-llama/LlamaGuard-7b')
         tokenizer.truncation_side="right"
-        cls_m = AutoModelForCausalLM.from_pretrained('meta-llama/LlamaGuard-7b', torch_dtype=torch.bfloat16, device_map='cuda')
-        cls = PeftModel.from_pretrained(cls_m, args.cls_path, device_map='cuda')
+        cls_m = AutoModelForCausalLM.from_pretrained('meta-llama/LlamaGuard-7b', torch_dtype=DTYPE, device_map=DEVICE)
+        cls = PeftModel.from_pretrained(cls_m, args.cls_path, device_map=DEVICE)
 
     else:
         tokenizer = AutoTokenizer.from_pretrained(args.cls_path, trust_remote_code=True)
         tokenizer.truncation_side="right"
-        cls = AutoModelForCausalLM.from_pretrained(args.cls_path, torch_dtype=torch.bfloat16, trust_remote_code=True, device_map='cuda')
+        cls = AutoModelForCausalLM.from_pretrained(args.cls_path, torch_dtype=DTYPE, trust_remote_code=True, device_map=DEVICE)
 
 
     mode = args.mode
