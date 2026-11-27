@@ -15,8 +15,13 @@ mode=${2:-prompt}
 cal_method=${3:-origin}
 base_prompt=${4:-guard}
 
-guard='meta-llama/Llama-Guard-3-1B'
-base_lms='meta-llama/Llama-3.2-1B meta-llama/Llama-3.2-1B-Instruct'
+# Pick the guard with GUARD=..., e.g.  GUARD=Qwen/Qwen3Guard-Gen-0.6B bash run_base_compare.sh
+guard=${GUARD:-meta-llama/Llama-Guard-3-1B}
+case $guard in
+    meta-llama/Llama-Guard-3-1B) base_lms='meta-llama/Llama-3.2-1B meta-llama/Llama-3.2-1B-Instruct' ;;
+    Qwen/Qwen3Guard-Gen-0.6B)    base_lms='Qwen/Qwen3-0.6B-Base Qwen/Qwen3-0.6B' ;;
+    *) echo "No base LMs defined for $guard; add it to run_base_compare.sh"; exit 1 ;;
+esac
 out_dir="results_guard/basecmp"
 PY=${PY:-.venv/bin/python}
 

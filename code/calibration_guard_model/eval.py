@@ -57,6 +57,8 @@ def parse_args():
     parser.add_argument("--base_prompt", type=str, default='guard', choices=['guard', 'fewshot'],
                         help="Prompt given to --base_lm. guard: the guard's own template; "
                              "fewshot: the 5-shot prompt of Hong et al. 2026 (prompt classification only)")
+    parser.add_argument("--controversial", type=str, default='unsafe', choices=['unsafe', 'safe'],
+                        help="Qwen3Guard only: count its 'Controversial' verdict as unsafe (strict mode) or safe (loose mode)")
 
     args = parser.parse_args()
     return args
@@ -126,8 +128,10 @@ def main():
         if args.base_prompt == 'fewshot':
             return compute_results_fewshot(data, cls, base_tok, mode, t_s=t_s)
         if args.scoring == 'forced':
-            return compute_results_forced(data, cls, tokenizer, args.cls_path, mode, t_s=t_s)
-        return (*compute_results_classifier_hug(data, cls, tokenizer, args.cls_path, mode, t_s=t_s), None)
+            return compute_results_forced(data, cls, tokenizer, args.cls_path, mode, t_s=t_s,
+                                          controversial=args.controversial)
+        return (*compute_results_classifier_hug(data, cls, tokenizer, args.cls_path, mode, t_s=t_s,
+                                                controversial=args.controversial), None)
 
     mode = args.mode
     if args.dataset == 'harmbench':
@@ -468,11 +472,12 @@ def main():
         'scoring': args.scoring,
         'base_lm': args.base_lm,
         'base_prompt': args.base_prompt if args.base_lm else None,
+        'controversial': args.controversial if 'Qwen3Guard' in args.cls_path else None,
     }
     if label_masses:
         # Not a score: a sanity check that the model puts its probability on 'safe'/'unsafe' at all
         results['label_mass'] = float(np.mean(label_masses))
-        print("Label mass (avg P(safe)+P(unsafe)): ", results['label_mass'])
+        print("Label mass (avg probability on the label tokens): ", results['label_mass'])
     # Make dirs to output_file if not yet exist
     is_save = True
     if is_save == True:
