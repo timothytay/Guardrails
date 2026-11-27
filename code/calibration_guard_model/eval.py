@@ -16,7 +16,7 @@ from sklearn.metrics import precision_recall_curve, auc, f1_score, precision_sco
 # Set this to disable warning messages in the generation mode.
 transformers.utils.logging.set_verbosity_error()
 
-from eval_utils import compute_results_classifier_hug, compute_results_forced, DEVICE, DTYPE
+from eval_utils import compute_results_classifier_hug, compute_results_forced, compute_results_fewshot, DEVICE, DTYPE
 import calibration as cal
 
 def seed_everything(seed: int):
@@ -54,7 +54,10 @@ def parse_args():
     parser.add_argument("--scoring", type=str, default='generate', choices=['generate', 'forced'],
                         help="generate: original method (read label logits from the guard's generated reply); "
                              "forced: read label logits at a fixed answer position (needed for base LMs)")
-    
+    parser.add_argument("--base_prompt", type=str, default='guard', choices=['guard', 'fewshot'],
+                        help="Prompt given to --base_lm. guard: the guard's own template; "
+                             "fewshot: the 5-shot prompt of Hong et al. 2026 (prompt classification only)")
+
     args = parser.parse_args()
     return args
 
@@ -111,10 +114,17 @@ def main():
         base_tok = AutoTokenizer.from_pretrained(args.base_lm)
         if base_tok.get_vocab() != tokenizer.get_vocab():
             raise ValueError(f"{args.base_lm} does not share a vocabulary with {args.cls_path}")
-    print(f"Scoring: {args.scoring}" + (f" | weights: {args.base_lm} | prompt format: {args.cls_path}" if args.base_lm else ""))
+    elif args.base_prompt != 'guard':
+        raise ValueError("--base_prompt only applies together with --base_lm")
+    if args.base_prompt == 'fewshot':
+        print(f"Scoring: 5-shot prompt | weights: {args.base_lm}")
+    else:
+        print(f"Scoring: {args.scoring}" + (f" | weights: {args.base_lm} | prompt format: {args.cls_path}" if args.base_lm else ""))
 
     def score(data, t_s=1.0):
         """Return (P(unsafe), gt label, predicted label, label logits, label_mass or None)."""
+        if args.base_prompt == 'fewshot':
+            return compute_results_fewshot(data, cls, base_tok, mode, t_s=t_s)
         if args.scoring == 'forced':
             return compute_results_forced(data, cls, tokenizer, args.cls_path, mode, t_s=t_s)
         return (*compute_results_classifier_hug(data, cls, tokenizer, args.cls_path, mode, t_s=t_s), None)
@@ -457,6 +467,7 @@ def main():
         'auprc': auprc,
         'scoring': args.scoring,
         'base_lm': args.base_lm,
+        'base_prompt': args.base_prompt if args.base_lm else None,
     }
     if label_masses:
         # Not a score: a sanity check that the model puts its probability on 'safe'/'unsafe' at all
